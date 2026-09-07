@@ -1,10 +1,16 @@
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
 import DashboardCard from "@/components/DashboardCard";
+import { getCurrentTeacher } from "@/lib/current-teacher";
+import { prisma } from "@/lib/prisma";
 
-export default function Home() {
+export default async function Home() {
+  const teacher = await getCurrentTeacher();
+  const repartitionCount = teacher
+    ? await prisma.repartition.count({ where: { teacherId: teacher.id } })
+    : 0;
   return (
-    <main className="flex min-h-screen bg-slate-100 text-gray-900">
+    <main className="flex min-h-screen flex-col bg-slate-100 text-gray-900 lg:flex-row">
 
       <Sidebar />
 
@@ -12,13 +18,13 @@ export default function Home() {
 
         <Header />
 
-        <div className="p-8">
+        <div className="p-4 sm:p-8">
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
 
             <DashboardCard
               title="Répartitions"
-              value="0"
+              value={String(repartitionCount)}
             />
 
             <DashboardCard

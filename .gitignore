@@ -39,3 +39,42 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/app/generated/prisma
+
+# OpenNext
+.open-next
+
+# wrangler files
+.wrangler
+.dev.vars*
+
+# Logs, temporary files and archives
+*.log
+*.log.*
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+/tmp/
+/temp/
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+
+# Credentials and local tooling
+*.key
+*.p12
+*.pfx
+.npmrc
+.netrc
+credentials*.json
+secrets*.json
+/.tools/
+/.claude/
+/.windsurf/

@@ -1,0 +1,33 @@
+name: Cloudflare build verification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Synthetic build-only values: no production credentials or database access.
+      DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2xlcmsuZXhhbXBsZS5jb20k
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run lint
+      - name: Build Next.js for Cloudflare
+        run: npx opennextjs-cloudflare build
+      - name: Validate Worker bundle without deploying
+        run: npx wrangler deploy --dry-run
