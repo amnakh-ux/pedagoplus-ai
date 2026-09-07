@@ -31,3 +31,10 @@ jobs:
         run: npx opennextjs-cloudflare build
       - name: Validate Worker bundle without deploying
         run: npx wrangler deploy --dry-run
+      - name: Save Cloudflare Worker bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: pedagoplus-ai-cloudflare
+          path: .open-next
+          if-no-files-found: error
+          retention-days: 3
