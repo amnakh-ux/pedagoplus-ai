@@ -18,6 +18,9 @@ jobs:
       # The build only needs a syntactically valid database URL; it never connects to it.
       DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+      NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: /repartition
+      NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: /repartition
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
