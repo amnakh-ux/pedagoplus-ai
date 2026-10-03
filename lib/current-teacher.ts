@@ -10,10 +10,12 @@ export async function getCurrentTeacher() {
   if (existingTeacher) return existingTeacher;
 
   const user = await currentUser();
-  const email = user?.emailAddresses[0]?.emailAddress;
+  const email = user?.primaryEmailAddress?.emailAddress;
   if (!user || !email) return null;
 
-  return prisma.teacher.create({
-    data: { clerkId: userId, email, firstName: user.firstName, lastName: user.lastName },
+  return prisma.teacher.upsert({
+    where: { clerkId: userId },
+    update: {},
+    create: { clerkId: userId, email, firstName: user.firstName, lastName: user.lastName },
   });
 }

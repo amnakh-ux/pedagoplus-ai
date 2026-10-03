@@ -1,4 +1,5 @@
 import mammoth from "mammoth";
+import { auth } from "@clerk/nextjs/server";
 import { extractText, getDocumentProxy } from "unpdf";
 import { Buffer } from "node:buffer";
 
@@ -12,6 +13,8 @@ function extensionOf(filename: string) {
 }
 
 export async function POST(request: Request) {
+  const { userId } = await auth();
+  if (!userId) return Response.json({ error: "Non authentifié" }, { status: 401 });
   try {
     const formData = await request.formData();
     const entry = formData.get("file");

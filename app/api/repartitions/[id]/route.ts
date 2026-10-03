@@ -1,6 +1,7 @@
 import { getCurrentTeacher } from "@/lib/current-teacher";
 import { prisma } from "@/lib/prisma";
 import { validateRepartitionInput } from "@/lib/repartition-input";
+import { ownsPlanningClass } from "@/lib/repartition-class";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -19,9 +20,10 @@ export async function PUT(request: Request, { params }: Context) {
   const { id } = await params;
   const input = validateRepartitionInput(await request.json().catch(() => null));
   if (!input) return Response.json({ error: "Répartition invalide" }, { status: 400 });
+  if (!await ownsPlanningClass(teacher.id,input)) return Response.json({error:"Classe introuvable ou paramètres scolaires différents de la classe."},{status:400});
   const existing = await prisma.repartition.findFirst({ where: { id, teacherId: teacher.id }, select: { id: true } });
   if (!existing) return Response.json({ error: "Répartition introuvable" }, { status: 404 });
-  const repartition = await prisma.repartition.update({ where: { id }, data: { ...input, rows: { deleteMany: {}, create: input.rows } }, include: { rows: { orderBy: { week: "asc" } } } });
+  const repartition = await prisma.repartition.update({ where: { id, teacherId: teacher.id }, data: { ...input, rows: { deleteMany: {}, create: input.rows } }, include: { rows: { orderBy: { week: "asc" } } } });
   return Response.json(repartition);
 }
 

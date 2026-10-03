@@ -1,5 +1,10 @@
-import { PrismaClient } from "@prisma/client/wasm.js";
+import type { PrismaClient as PrismaClientType } from "@prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
+
+// Next dev runs in Node.js; Cloudflare keeps its existing Worker WASM entry.
+const { PrismaClient } = process.env.NODE_ENV === "development"
+  ? await import("@prisma/client")
+  : await import("@prisma/client/wasm.js");
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -8,15 +13,15 @@ if (!connectionString) {
 }
 
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+  prismaNodeDev: PrismaClientType | undefined;
 };
 
 export const prisma =
-  globalForPrisma.prisma ??
+  (process.env.NODE_ENV === "development" ? globalForPrisma.prismaNodeDev : undefined) ??
   new PrismaClient({
     adapter: new PrismaNeon({ connectionString }),
   });
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+if (process.env.NODE_ENV === "development") {
+  globalForPrisma.prismaNodeDev = prisma;
 }

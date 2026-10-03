@@ -14,11 +14,34 @@ model Teacher {
   firstName String?
   lastName  String?
   email     String  @unique
+  country   String  @default("Maroc")
+  schoolYear String @default("2026-2027")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   repartitions Repartition[]
+  classes SchoolClass[]
+  exerciseSheets ExerciseSheet[]
+  exerciseUsage ExerciseUsage[]
+  exerciseRequests ExerciseRequestWindow[]
+  journalSessions JournalSession[]
+}
+
+model SchoolClass {
+  id String @id @default(cuid())
+  name String
+  level String
+  country String
+  schoolYear String
+  teacherId String
+  teacher Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  repartitions Repartition[]
+  journalSessions JournalSession[]
+  @@unique([id, teacherId])
+  @@index([teacherId, createdAt])
 }
 
 model Repartition {
@@ -28,6 +51,14 @@ model Repartition {
   schoolYear     String
   level          String
   lessonsPerWeek Int
+  classId        String?
+  schoolClass    SchoolClass? @relation(fields: [classId, teacherId], references: [id, teacherId], onDelete: NoAction, onUpdate: NoAction)
+  startDate      DateTime?
+  endDate        DateTime?
+  sessionMinutes Int @default(45)
+  vacations      String @default("")
+  syllabus       String @default("")
+  validatedAt    DateTime?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   teacherId      String
@@ -44,9 +75,67 @@ model RepartitionRow {
   endDate       DateTime
   unit          String
   lessons       String
+  sessions      Int @default(0)
   repartitionId String
   repartition   Repartition @relation(fields: [repartitionId], references: [id], onDelete: Cascade)
 
   @@unique([repartitionId, week])
   @@index([repartitionId])
+}
+
+model ExerciseSheet {
+  id String @id @default(cuid())
+  teacherId String
+  teacher Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  title String
+  level String
+  subject String
+  domain String
+  skill String
+  difficulty String
+  snapshot Json
+  revision Int @default(1)
+  generationKey String
+  requestFingerprint String
+  monthKey String
+  savedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  journalSessions JournalSession[]
+  @@unique([teacherId, generationKey])
+  @@unique([id, teacherId])
+  @@index([teacherId, savedAt, updatedAt])
+  @@index([teacherId, monthKey])
+}
+
+model ExerciseUsage {
+  teacherId String
+  monthKey String
+  count Int @default(0)
+  teacher Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  @@id([teacherId, monthKey])
+}
+
+model ExerciseRequestWindow {
+  teacherId String
+  bucket String
+  count Int @default(0)
+  teacher Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  @@id([teacherId, bucket])
+}
+
+model JournalSession {
+  id String @id @default(cuid())
+  teacherId String
+  teacher Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  classId String
+  schoolClass SchoolClass @relation(fields: [classId, teacherId], references: [id, teacherId], onDelete: NoAction, onUpdate: NoAction)
+  sheetId String
+  sheet ExerciseSheet @relation(fields: [sheetId, teacherId], references: [id, teacherId], onDelete: NoAction, onUpdate: NoAction)
+  date DateTime
+  title String
+  duration Int
+  createdAt DateTime @default(now())
+  @@unique([teacherId, sheetId, classId, date])
+  @@index([teacherId, date])
 }

@@ -1,25 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { generatePlanning, frenchDate, parseDate, type PlanningRow } from "@/lib/planning";
+import { useEffect, useRef, useState } from "react";
 
 type Lesson = {
   unite: string;
   lecon: string;
 };
 
-type RepartitionRow = {
-  semaine: number;
-  debut: string;
-  fin: string;
-  unite: string;
-  lecons: string;
-};
-
-type Vacation = {
-  start: Date;
-  end: Date;
-};
+type RepartitionRow = PlanningRow;
+type ClassItem = { id:string; name:string; level:string; country:string; schoolYear:string };
 
 type ImportTarget = "vacances" | "sommaire";
 
@@ -32,11 +23,24 @@ type StoredRepartition = {
   schoolYear: string;
   level: string;
   lessonsPerWeek: number;
-  rows: Array<{ week: number; startDate: string; endDate: string; unit: string; lessons: string }>;
+  classId: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  sessionMinutes: number;
+  vacations: string;
+  syllabus: string;
+  validatedAt: string | null;
+  rows: Array<{ week: number; startDate: string; endDate: string; unit: string; lessons: string; sessions: number }>;
 };
 
 export default function RepartitionPage() {
   const type = "annuelle";
+  const [classes, setClasses] = useState<ClassItem[]>([]);
+  const [classId, setClassId] = useState("");
+  const [startDate, setStartDate] = useState("2026-09-01");
+  const [endDate, setEndDate] = useState("2027-06-30");
+  const [sessionMinutes, setSessionMinutes] = useState(45);
+  const [validated, setValidated] = useState(false);
   const [pays, setPays] = useState("Maroc");
   const [annee, setAnnee] = useState("2026-2027");
   const [niveau, setNiveau] = useState("CM2");
@@ -58,53 +62,90 @@ export default function RepartitionPage() {
   const [message, setMessage] = useState("");
   const [savedId, setSavedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const revision = useRef(0);
+  const validatedRef = useRef(false);
+
+  function setValidation(value: boolean) {
+    validatedRef.current = value;
+    setValidated(value);
+  }
+
+  function invalidateValidation() {
+    revision.current += 1;
+    setValidation(false);
+    setMessage("Brouillon modifié. Validez et enregistrez avant d’imprimer ou d’exporter.");
+  }
+
+  function canExport() {
+    return validatedRef.current && !savingRef.current && importing === null;
+  }
+
+  const exportDisabled = !validated || saving || importing !== null;
 
   useEffect(() => {
+    void fetch("/api/classes").then(async response => {
+      if (!response.ok) throw new Error("Impossible de charger les classes.");
+      setClasses(await response.json());
+    }).catch(error => setMessage(error.message));
     const id = new URLSearchParams(window.location.search).get("id");
     if (!id) return;
 
     void fetch(`/api/repartitions/${id}`).then(async (response) => {
       const data = (await response.json()) as StoredRepartition & { error?: string };
       if (!response.ok) throw new Error(data.error ?? "Impossible d’ouvrir cette répartition.");
-      const date = (value: string) => new Date(value).toLocaleDateString("fr-FR");
+      const date = (value: string) => frenchDate(new Date(value));
+      setClassId(data.classId ?? "");
+      setStartDate(data.startDate?.slice(0,10) ?? data.rows[0]?.startDate.slice(0,10) ?? "");
+      setEndDate(data.endDate?.slice(0,10) ?? data.rows.at(-1)?.endDate.slice(0,10) ?? "");
+      setSessionMinutes(data.sessionMinutes ?? 45);
+      setVacances(data.vacations ?? "");
+      setSommaire(data.syllabus ?? "");
+      setValidation(Boolean(data.validatedAt));
       setPays(data.country);
       setAnnee(data.schoolYear);
       setNiveau(data.level);
       setLeconsParSemaine(data.lessonsPerWeek);
-      setRepartition(data.rows.map((row) => ({ semaine: row.week, debut: date(row.startDate), fin: date(row.endDate), unite: row.unit, lecons: row.lessons })));
+      setRepartition(data.rows.map((row) => ({ semaine: row.week, debut: date(row.startDate), fin: date(row.endDate), unite: row.unit, lecons: row.lessons, sessions: row.sessions ?? 0 })));
       setSavedId(data.id);
       setMessage("Répartition chargée depuis l’historique.");
     }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "Impossible d’ouvrir cette répartition."));
   }, []);
 
-  async function saveRepartition() {
-    if (repartition.length === 0) return;
+  async function saveRepartition(confirmValidation = false) {
+    if (repartition.length === 0 || savingRef.current || importing !== null) return;
+    savingRef.current = true;
+    const savedRevision = revision.current;
     setSaving(true);
     try {
       const response = await fetch(savedId ? `/api/repartitions/${savedId}` : "/api/repartitions", {
         method: savedId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          type,
+          type, classId, startDate, endDate, sessionMinutes, vacations: vacances, syllabus: sommaire, validated: confirmValidation,
           country: pays,
           schoolYear: annee,
           level: niveau,
           lessonsPerWeek: leconsParSemaine,
-          rows: repartition.map((row) => ({ week: row.semaine, startDate: row.debut, endDate: row.fin, unit: row.unite, lessons: row.lecons })),
+          rows: repartition.map((row) => ({ week: row.semaine, startDate: row.debut, endDate: row.fin, unit: row.unite, lessons: row.lecons, sessions: row.sessions })),
         }),
       });
-      const data = (await response.json()) as { id?: string; error?: string };
+      const data = (await response.json()) as { id?: string; validatedAt?: string | null; error?: string };
       if (!response.ok || !data.id) throw new Error(data.error ?? "L’enregistrement a échoué.");
       setSavedId(data.id);
+      setValidation(savedRevision === revision.current && Boolean(data.validatedAt));
+      window.history.replaceState(null, "", "/repartition/lecons?id="+data.id);
       setMessage(savedId ? "Répartition modifiée avec succès." : "Répartition enregistrée avec succès.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "L’enregistrement a échoué.");
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
 
   async function importDocument(file: File, target: ImportTarget) {
+    invalidateValidation();
     setImporting(target);
     setImportError((current) => ({ ...current, [target]: "" }));
 
@@ -133,6 +174,7 @@ export default function RepartitionPage() {
         throw new Error(result.error ?? "Impossible de lire ce document.");
       }
 
+      setRepartition([]);
       if (target === "vacances") {
         setVacances(extractedText);
       } else {
@@ -220,34 +262,6 @@ export default function RepartitionPage() {
     }
   }
 
-  function formatDate(date: Date) {
-    return date.toLocaleDateString("fr-FR");
-  }
-
-  function parseDate(value: string) {
-    const [day, month, year] = value.split("/").map(Number);
-
-    return new Date(year, month - 1, day);
-  }
-
-  function extractVacations(): Vacation[] {
-    const result: Vacation[] = [];
-
-    const regex =
-      /(\d{2}\/\d{2}\/\d{4})\s*(?:au|-)\s*(\d{2}\/\d{2}\/\d{4})/g;
-
-    let match;
-
-    while ((match = regex.exec(vacances)) !== null) {
-      result.push({
-        start: parseDate(match[1]),
-        end: parseDate(match[2]),
-      });
-    }
-
-    return result;
-  }
-
   function extractLessons(): Lesson[] {
     const lines = sommaire
       .split("\n")
@@ -292,137 +306,24 @@ export default function RepartitionPage() {
     return lessons;
   }
 
-  function weekIsVacation(
-    startWeek: Date,
-    endWeek: Date,
-    schoolVacations: Vacation[]
-  ) {
-    return schoolVacations.some((vacation) => {
-      return (
-        startWeek <= vacation.end &&
-        endWeek >= vacation.start
-      );
-    });
-  }
-
   function generateRepartition() {
-    const lessons = extractLessons();
-
-    if (lessons.length === 0) {
-      setMessage(
-        "Ajoutez les unités et les leçons avant de générer la répartition."
-      );
-
-      setRepartition([]);
-      return;
-    }
-
-    const schoolVacations = extractVacations();
-
-    const startYear = Number(annee.split("-")[0]);
-
-    const currentDate = new Date(startYear, 8, 1);
-
-    while (currentDate.getDay() !== 1) {
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
-    const endSchoolYear = new Date(
-      startYear + 1,
-      5,
-      30
-    );
-
-    const rows: RepartitionRow[] = [];
-
-    let lessonIndex = 0;
-    let weekNumber = 1;
-
-    while (currentDate <= endSchoolYear) {
-      const weekStart = new Date(currentDate);
-      const weekEnd = new Date(currentDate);
-
-      weekEnd.setDate(weekEnd.getDate() + 4);
-      if (weekEnd > endSchoolYear) weekEnd.setTime(endSchoolYear.getTime());
-
-      const isVacation = weekIsVacation(
-        weekStart,
-        weekEnd,
-        schoolVacations
-      );
-
-      if (isVacation) {
-        rows.push({
-          semaine: weekNumber,
-          debut: formatDate(weekStart),
-          fin: formatDate(weekEnd),
-          unite: "Vacances scolaires",
-          lecons: "Aucune leçon — vacances scolaires",
-        });
-      } else {
-        const weekLessons = lessons.slice(
-          lessonIndex,
-          lessonIndex + leconsParSemaine
-        );
-
-        if (weekLessons.length > 0) {
-          const units = Array.from(
-            new Set(
-              weekLessons.map(
-                (lesson) => lesson.unite
-              )
-            )
-          ).join(" / ");
-
-          rows.push({
-            semaine: weekNumber,
-            debut: formatDate(weekStart),
-            fin: formatDate(weekEnd),
-            unite: units,
-            lecons: weekLessons
-              .map((lesson) => lesson.lecon)
-              .join(" • "),
-          });
-
-          lessonIndex += weekLessons.length;
-        } else {
-          rows.push({
-            semaine: weekNumber,
-            debut: formatDate(weekStart),
-            fin: formatDate(weekEnd),
-            unite: "Programme terminé",
-            lecons: "Aucune leçon à planifier",
-          });
-        }
-      }
-
-      weekNumber++;
-      currentDate.setDate(
-        currentDate.getDate() + 7
-      );
-    }
-
-    setRepartition(rows);
-
-    const remainingLessons = lessons.length - lessonIndex;
-    const vacationWeekCount = rows.filter(
-      (row) => row.unite === "Vacances scolaires"
-    ).length;
-    const teachingWeekCount = rows.length - vacationWeekCount;
-    const vacationSummary = `${vacationWeekCount} semaine(s) de vacances conservée(s) sans leçons.`;
-
-    setMessage(
-      remainingLessons > 0
-        ? `${lessonIndex} leçon(s) répartie(s) sur ${teachingWeekCount} semaine(s) de cours. ${vacationSummary} ${remainingLessons} leçon(s) restent à planifier après la fin de l’année scolaire.`
-        : `${lessons.length} leçon(s) répartie(s) sur ${teachingWeekCount} semaine(s) de cours. ${vacationSummary}`
-    );
+    invalidateValidation();
+    try {
+      if (!classId) throw new Error("Créez puis choisissez une classe avant de générer.");
+      const lessons = extractLessons();
+      if (!lessons.length) throw new Error("Ajoutez les unités et les leçons.");
+      const rows = generatePlanning(startDate,endDate,leconsParSemaine,vacances,lessons);
+      setRepartition(rows);
+      setMessage("Aperçu généré. Vérifiez les séances, modifiez si nécessaire, puis validez et enregistrez.");
+    } catch(error) {setRepartition([]);setMessage(error instanceof Error ? error.message : "Génération impossible.");}
   }
 
   async function downloadExcel() {
-    if (repartition.length === 0) {
+    if (repartition.length === 0 || !canExport()) {
       return;
     }
 
+    const exportedRevision = revision.current;
     const [ExcelJS, fileSaver] = await Promise.all([
       import("exceljs"),
       import("file-saver"),
@@ -483,14 +384,17 @@ export default function RepartitionPage() {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
 
-    fileSaver.saveAs(blob, `repartition-${niveau}-${annee}.xlsx`);
+    if (canExport() && exportedRevision === revision.current) {
+      fileSaver.saveAs(blob, `repartition-${niveau}-${annee}.xlsx`);
+    }
   }
 
   async function downloadWord() {
-    if (repartition.length === 0) {
+    if (repartition.length === 0 || !canExport()) {
       return;
     }
 
+    const exportedRevision = revision.current;
     const [docx, fileSaver] = await Promise.all([
       import("docx"),
       import("file-saver"),
@@ -599,6 +503,7 @@ export default function RepartitionPage() {
 
     const blob = await Packer.toBlob(document);
 
+    if (!canExport() || exportedRevision !== revision.current) return;
     fileSaver.saveAs(
       blob,
       `repartition-${niveau}-${annee}.docx`
@@ -606,8 +511,11 @@ export default function RepartitionPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 p-8">
-      <div className="mx-auto max-w-5xl">
+    <main className="planning-page min-h-screen bg-slate-50 p-4 text-slate-900 sm:p-8" onChangeCapture={event => {
+      invalidateValidation();
+      if (!(event.target as HTMLElement).closest(".planning-preview")) setRepartition([]);
+    }}>
+      <div className="mx-auto max-w-5xl"><fieldset disabled={saving || importing !== null} className="contents">
         <Link
           href="/repartition"
           className="text-sm font-semibold text-blue-700 hover:underline"
@@ -649,6 +557,20 @@ export default function RepartitionPage() {
         </div>
 
         <div className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
+          <label className="block font-medium">Classe
+            <select value={classId} onChange={e=>{
+              setClassId(e.target.value); const selected=classes.find(c=>c.id===e.target.value);
+              if(selected){setPays(selected.country);setNiveau(selected.level);setAnnee(selected.schoolYear);setStartDate(selected.schoolYear.slice(0,4)+"-09-01");setEndDate(selected.schoolYear.slice(5)+"-06-30");}
+            }} className="mt-2 w-full rounded-xl border p-3">
+              <option value="">Choisir une classe</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name} — {c.level} — {c.schoolYear}</option>)}
+            </select>
+          </label>
+          <Link href="/parametres" className="mt-2 inline-block text-blue-700 underline">Créer ou modifier mes classes</Link>
+          <div className="my-4 grid gap-4 sm:grid-cols-3">
+            <label>Début de l’année<input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} className="mt-2 w-full rounded border p-3"/></label>
+            <label>Fin de l’année<input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} className="mt-2 w-full rounded border p-3"/></label>
+            <label>Durée d’une séance (minutes)<input type="number" min={5} max={180} value={sessionMinutes} onChange={e=>setSessionMinutes(Number(e.target.value))} className="mt-2 w-full rounded border p-3"/></label>
+          </div>
           <h2 className="text-lg font-semibold">
             Informations scolaires
           </h2>
@@ -660,13 +582,13 @@ export default function RepartitionPage() {
               </label>
 
               <select
-                value={pays}
+                aria-label="Pays" disabled value={pays}
                 onChange={(e) =>
                   setPays(e.target.value)
                 }
                 className="w-full rounded-xl border p-3"
               >
-                <option>Maroc</option>
+                <option>{pays}</option>
                 <option>France</option>
                 <option>Belgique</option>
                 <option>Canada</option>
@@ -682,13 +604,13 @@ export default function RepartitionPage() {
               </label>
 
               <select
-                value={annee}
+                aria-label="Année scolaire" disabled value={annee}
                 onChange={(e) =>
                   setAnnee(e.target.value)
                 }
                 className="w-full rounded-xl border p-3"
               >
-                <option>2026-2027</option>
+                <option>{annee}</option>
                 <option>2027-2028</option>
               </select>
             </div>
@@ -699,18 +621,14 @@ export default function RepartitionPage() {
               </label>
 
               <select
-                value={niveau}
+                aria-label="Niveau" disabled value={niveau}
                 onChange={(e) =>
                   setNiveau(e.target.value)
                 }
                 className="w-full rounded-xl border p-3"
               >
-                <option>CP</option>
-                <option>CE1</option>
-                <option>CE2</option>
                 <option>CM1</option>
                 <option>CM2</option>
-                <option>CE6</option>
               </select>
             </div>
           </div>
@@ -722,7 +640,7 @@ export default function RepartitionPage() {
           </h2>
 
           <p className="mt-2 text-sm text-slate-600">
-            Importez votre calendrier scolaire ou saisissez les vacances.
+            Saisissez une période par ligne (JJ/MM/AAAA au JJ/MM/AAAA). Après un import, corrigez le texte pour respecter ce format. Aucun calendrier officiel n’est appliqué.
           </p>
 
           <div className="mt-5 rounded-xl border-2 border-dashed border-slate-300 p-6 text-center">
@@ -763,7 +681,7 @@ export default function RepartitionPage() {
           </div>
 
           <textarea
-            value={vacances}
+            aria-label="Périodes non travaillées" value={vacances}
             onChange={(e) =>
               setVacances(e.target.value)
             }
@@ -822,7 +740,7 @@ export default function RepartitionPage() {
           </div>
 
           <textarea
-            value={sommaire}
+            aria-label="Unités et leçons" value={sommaire}
             onChange={(e) =>
               setSommaire(e.target.value)
             }
@@ -853,7 +771,7 @@ Leçon 2 : Nombres décimaux`}
           </label>
 
           <select
-            value={leconsParSemaine}
+            aria-label="Nombre de séances par semaine" value={leconsParSemaine}
             onChange={(e) =>
               setLeconsParSemaine(
                 Number(e.target.value)
@@ -869,6 +787,7 @@ Leçon 2 : Nombres décimaux`}
           </select>
         </div>
 
+        <p className="mt-4 text-sm text-slate-600">Base de calcul : lundi à vendredi. Les semaines partielles sont calculées au prorata des jours disponibles, arrondi à l’entier inférieur.</p>
         <div className="mt-8 text-center">
           <button
             onClick={generateRepartition}
@@ -879,28 +798,28 @@ Leçon 2 : Nombres décimaux`}
         </div>
 
         {message && (
-          <div className="mt-6 rounded-xl bg-blue-50 p-4 text-center text-blue-800">
+          <div role="status" aria-live="polite" className="mt-6 rounded-xl bg-blue-50 p-4 text-center text-blue-800">
             {message}
           </div>
         )}
 
         {repartition.length > 0 && (
-          <div className="mt-8 rounded-2xl bg-white p-6 shadow-sm">
+          <div className="planning-preview mt-8 rounded-2xl bg-white p-4 shadow-sm sm:p-6" data-validated={!exportDisabled}>
             <h2 className="text-2xl font-bold">
-              Répartition {type}
+              Répartition {type}<span className="print-value"> — {niveau} — {annee}</span>
             </h2>
 
-            <p className="mt-1 text-slate-600">
+            <p className="no-print mt-1 text-slate-600">
               {pays} — {niveau} — {annee}
             </p>
-            <p className="mt-2 text-sm text-slate-600">
-              Semaines de vacances conservées sans leçons. Exports Word et Excel au format A4 paysage.
+            <p className="no-print mt-2 text-sm text-slate-600">
+              {validated ? "Version validée et enregistrée" : "Brouillon à vérifier"} — Séances de {sessionMinutes} minutes. <span className="no-print">PDF : choisissez « Enregistrer au format PDF » dans la fenêtre d’impression.</span>
             </p>
 
             <div className="mt-6 overflow-x-auto">
               <table className="w-full border-collapse text-left">
                 <thead>
-                  <tr className="bg-slate-100">
+                  <tr className="bg-slate-100"><th className="border p-3">Mois</th><th className="border p-3">Séances</th>
                     <th className="border p-3">
                       Semaine
                     </th>
@@ -922,6 +841,8 @@ Leçon 2 : Nombres décimaux`}
                 <tbody>
                   {repartition.map((row) => (
                     <tr key={row.semaine} className={row.unite === "Vacances scolaires" ? "bg-amber-50" : undefined}>
+                      <td className="border p-3">{parseDate(row.debut)?.toLocaleDateString("fr-FR",{month:"long",timeZone:"UTC"})}</td>
+                      <td className="border p-3"><span className="print-value">{row.sessions}</span><input aria-label={"Séances semaine "+row.semaine} type="number" min={0} max={40} value={row.sessions} onChange={e=>setRepartition(old=>old.map(r=>r.semaine===row.semaine?{...r,sessions:Number(e.target.value)}:r))} className="w-16 rounded border p-1"/></td>
                       <td className="border p-3 font-medium">
                         S{row.semaine}
                       </td>
@@ -935,11 +856,11 @@ Leçon 2 : Nombres décimaux`}
                       </td>
 
                       <td className="border p-3">
-                        {row.unite}
+                        <span className="print-value">{row.unite}</span><textarea aria-label={"Unité semaine "+row.semaine} maxLength={300} value={row.unite} onChange={e=>setRepartition(old=>old.map(r=>r.semaine===row.semaine?{...r,unite:e.target.value}:r))} className="min-w-28 w-full rounded border p-1"/>
                       </td>
 
                       <td className="border p-3">
-                        {row.lecons}
+                        <span className="print-value">{row.lecons}</span><textarea aria-label={"Leçons semaine "+row.semaine} maxLength={5000} rows={4} value={row.lecons} onChange={e=>setRepartition(old=>old.map(r=>r.semaine===row.semaine?{...r,lecons:e.target.value}:r))} className="min-w-52 w-full rounded border p-1"/>
                       </td>
                     </tr>
                   ))}
@@ -947,18 +868,21 @@ Leçon 2 : Nombres décimaux`}
               </table>
             </div>
 
-            <div className="mt-8 flex flex-wrap gap-4">
+            <div className="no-print mt-8 flex flex-wrap gap-4">
+              <button disabled={saving} onClick={()=>void saveRepartition(true)} className="rounded-xl bg-blue-700 px-6 py-3 font-semibold text-white disabled:opacity-50">Valider et enregistrer</button>
+              <button disabled={exportDisabled} onClick={()=>{if(canExport()) window.print();}} className="rounded-xl border px-6 py-3 disabled:opacity-50">Exporter le PDF A4</button>
               <button
                 type="button"
                 onClick={() => void saveRepartition()}
                 disabled={saving}
                 className="rounded-xl bg-violet-600 px-6 py-3 font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
               >
-                {saving ? "Enregistrement…" : savedId ? "Enregistrer les modifications" : "Enregistrer la répartition"}
+                {saving ? "Enregistrement…" : "Enregistrer le brouillon"}
               </button>
 
               <button
                 onClick={downloadExcel}
+                disabled={exportDisabled}
                 className="rounded-xl bg-green-600 px-6 py-3 font-semibold text-white hover:bg-green-700"
               >
                 Télécharger en Excel (paysage)
@@ -966,6 +890,7 @@ Leçon 2 : Nombres décimaux`}
 
               <button
                 onClick={downloadWord}
+                disabled={exportDisabled}
                 className="rounded-xl bg-blue-600 px-6 py-3 font-semibold text-white hover:bg-blue-700"
               >
                 Télécharger en Word (paysage)
@@ -973,7 +898,8 @@ Leçon 2 : Nombres décimaux`}
             </div>
           </div>
         )}
-      </div>
+      </fieldset></div>
+      <p className="print-blocked" role="status">Cette répartition doit être validée et enregistrée avant impression.</p>
     </main>
   );
 }

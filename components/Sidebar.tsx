@@ -1,47 +1,14 @@
 import Link from "next/link";
-
+const items = [
+  ["Tableau de bord","/"],["Répartition annuelle","/repartition"],["Cahier journal","/cahier-journal"],
+  ["Fiches pédagogiques",null],["Générateur d’exercices","/exercices"],["Évaluations",null],
+  ["Documents","/documents"],["Assistant IA",null],["Paramètres","/parametres"],
+] as const;
 export default function Sidebar() {
-  return (
-    <aside className="w-full border-b bg-white p-6 lg:min-h-screen lg:w-64 lg:border-b-0 lg:border-r">
-      <h2 className="text-xl font-bold text-blue-700 mb-8">
-        PedagoPlus AI
-      </h2>
-
-      <nav className="space-y-4">
-
-        <Link href="/" className="block w-full rounded-lg p-3 text-left hover:bg-blue-50">
-          🏠 Tableau de bord
-        </Link>
-
-        <Link href="/repartition" className="block w-full rounded-lg p-3 text-left hover:bg-blue-50">
-          📅 Répartition annuelle
-        </Link>
-
-        <Link href="/repartitions" className="block w-full rounded-lg p-3 text-left hover:bg-blue-50">
-          Historique des répartitions
-        </Link>
-
-        <button type="button" disabled className="w-full cursor-not-allowed rounded-lg p-3 text-left text-slate-400" title="Fonctionnalité à venir">
-          📖 Cahier journal
-        </button>
-
-        <button type="button" disabled className="w-full cursor-not-allowed rounded-lg p-3 text-left text-slate-400" title="Fonctionnalité à venir">
-          📚 Fiches pédagogiques
-        </button>
-
-        <button type="button" disabled className="w-full cursor-not-allowed rounded-lg p-3 text-left text-slate-400" title="Fonctionnalité à venir">
-          📝 Évaluations
-        </button>
-
-        <button type="button" disabled className="w-full cursor-not-allowed rounded-lg p-3 text-left text-slate-400" title="Fonctionnalité à venir">
-          🤖 Assistant IA
-        </button>
-
-        <button type="button" disabled className="w-full cursor-not-allowed rounded-lg p-3 text-left text-slate-400" title="Fonctionnalité à venir">
-          ⚙️ Paramètres
-        </button>
-
-      </nav>
-    </aside>
-  );
+  return <aside className="no-print w-full border-b bg-white p-4 lg:min-h-screen lg:w-64 lg:shrink-0 lg:border-r">
+    <Link href="/" className="mb-6 block text-xl font-bold text-blue-700">PedagoPlus AI</Link>
+    <nav aria-label="Navigation principale" className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">{items.map(([label,href])=>href
+      ? <Link key={label} href={href} className="rounded-lg p-3 hover:bg-blue-50">{label}</Link>
+      : <span key={label} className="p-3 text-slate-500">{label} <small>— À venir</small></span>)}</nav>
+  </aside>;
 }
